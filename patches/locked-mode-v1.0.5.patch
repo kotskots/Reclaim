@@ -1,0 +1,162 @@
+diff -ruN patchbase/app/build.gradle.kts patchmod/app/build.gradle.kts
+--- patchbase/app/build.gradle.kts	2026-09-29 16:05:02.000000000 +0000
++++ patchmod/app/build.gradle.kts	2026-09-29 20:29:24.572992689 +0000
+@@ -12,8 +12,8 @@
+         applicationId = "com.kostas.reclaim"
+         minSdk = 26
+         targetSdk = 35
+-        versionCode = 14
+-        versionName = "1.0.4"
++        versionCode = 15
++        versionName = "1.0.5"
+     }
+ 
+     buildFeatures {
+diff -ruN patchbase/app/src/main/java/com/kostas/reclaim/FocusPreferences.kt patchmod/app/src/main/java/com/kostas/reclaim/FocusPreferences.kt
+--- patchbase/app/src/main/java/com/kostas/reclaim/FocusPreferences.kt	2026-09-29 07:14:09.000000000 +0000
++++ patchmod/app/src/main/java/com/kostas/reclaim/FocusPreferences.kt	2026-09-29 20:28:37.338239318 +0000
+@@ -61,6 +61,19 @@
+     fun isLockedActive(context: Context): Boolean =
+         isActive(context) && strictMode(context).equals("LOCKED", ignoreCase = true)
+ 
++    /** Locks the currently running session without changing its end time or session id. */
++    fun lockCurrent(context: Context): Boolean {
++        if (!isActive(context)) return false
++        val now = System.currentTimeMillis()
++        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
++            .edit()
++            .putString(STRICT_MODE, "LOCKED")
++            .putLong(UPDATED_AT, now)
++            .apply()
++        LockdownPolicy.engage(context)
++        return true
++    }
++
+     fun stop(
+         context: Context,
+         updatedAt: Long = System.currentTimeMillis(),
+diff -ruN patchbase/app/src/main/java/com/kostas/reclaim/LockdownPolicy.kt patchmod/app/src/main/java/com/kostas/reclaim/LockdownPolicy.kt
+--- patchbase/app/src/main/java/com/kostas/reclaim/LockdownPolicy.kt	2026-09-29 07:01:28.000000000 +0000
++++ patchmod/app/src/main/java/com/kostas/reclaim/LockdownPolicy.kt	2026-09-29 20:28:37.338495223 +0000
+@@ -36,15 +36,17 @@
+         return dpm?.isDeviceOwnerApp(context.packageName) == true
+     }
+ 
+-    fun requestAdmin(context: Context) {
+-        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
++    fun adminIntent(context: Context): Intent =
++        Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+             putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent(context))
+             putExtra(
+                 DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                 "Reclaim uses device-admin protection to add friction against uninstalling the app during Locked Mode."
+             )
+-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+         }
++
++    fun requestAdmin(context: Context) {
++        val intent = adminIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+         runCatching { context.startActivity(intent) }
+     }
+ 
+diff -ruN patchbase/app/src/main/java/com/kostas/reclaim/ProductionScreens.kt patchmod/app/src/main/java/com/kostas/reclaim/ProductionScreens.kt
+--- patchbase/app/src/main/java/com/kostas/reclaim/ProductionScreens.kt	2026-09-29 16:05:02.000000000 +0000
++++ patchmod/app/src/main/java/com/kostas/reclaim/ProductionScreens.kt	2026-09-29 20:28:59.765230870 +0000
+@@ -472,10 +472,41 @@
+     var showLimit by remember { mutableStateOf<AppLimit?>(null) }
+     var creatingLimit by remember { mutableStateOf(false) }
+     var showEmergency by remember { mutableStateOf(false) }
++    var pendingLockedProfile by remember { mutableStateOf<FocusProfile?>(null) }
++    var pendingQuickLocked by remember { mutableStateOf(false) }
++    var pendingLockCurrent by remember { mutableStateOf(false) }
+     var calendarEnabled by remember { mutableStateOf(AutomationPreferences.calendarEnabled(context)) }
+     var calendarKeywords by remember { mutableStateOf(AutomationPreferences.calendarKeywords(context)) }
+     var refresh by remember { mutableIntStateOf(0) }
+ 
++    val adminLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
++        if (LockdownPolicy.isAdminActive(context)) {
++            when {
++                pendingLockCurrent -> {
++                    if (FocusPreferences.lockCurrent(context)) {
++                        prod.logEvent("session_locked", FocusPreferences.profile(context), metadata = "manual")
++                        WindowsSyncService.start(context)
++                        activeUntil = FocusPreferences.until(context)
++                    }
++                }
++                pendingLockedProfile != null -> {
++                    productionStartProfile(context, prod, pendingLockedProfile!!)
++                    activeUntil = FocusPreferences.until(context)
++                }
++                pendingQuickLocked -> {
++                    FocusPreferences.setBlockedPackages(context, selectedApps)
++                    FocusPreferences.setWhitelistMode(context, false)
++                    FocusPreferences.start(context, quickDuration, quickIntention, "Quick", StrictMode.LOCKED.name)
++                    prod.logEvent("session_start", "Quick", metadata = quickIntention)
++                    WindowsSyncService.start(context)
++                    activeUntil = FocusPreferences.until(context)
++                }
++            }
++        }
++        pendingLockedProfile = null
++        pendingQuickLocked = false
++        pendingLockCurrent = false
++    }
+     val calendarPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+ 
+     LaunchedEffect(Unit) {
+@@ -505,7 +536,20 @@
+                             Text("Blocking settings and normal stop are disabled until the timer ends.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                             if (ProductionSettings.emergencyUnlockEnabled(context)) OutlinedButton(onClick = { showEmergency = true }, modifier = Modifier.fillMaxWidth()) { Text("Emergency unlock") }
+                         } else {
+-                            Button(onClick = { FocusPreferences.stop(context); prod.logEvent("early_exit", FocusPreferences.profile(context)); WindowsSyncService.start(context); activeUntil = 0L }, modifier = Modifier.fillMaxWidth()) { Text("End session") }
++                            Button(onClick = {
++                                if (LockdownPolicy.isAdminActive(context)) {
++                                    if (FocusPreferences.lockCurrent(context)) {
++                                        prod.logEvent("session_locked", FocusPreferences.profile(context), metadata = "manual")
++                                        WindowsSyncService.start(context)
++                                        activeUntil = FocusPreferences.until(context)
++                                    }
++                                } else {
++                                    pendingLockCurrent = true
++                                    runCatching { adminLauncher.launch(LockdownPolicy.adminIntent(context)) }
++                                        .onFailure { pendingLockCurrent = false }
++                                }
++                            }, modifier = Modifier.fillMaxWidth()) { Text("LOCK CURRENT SESSION") }
++                            OutlinedButton(onClick = { FocusPreferences.stop(context); prod.logEvent("early_exit", FocusPreferences.profile(context)); WindowsSyncService.start(context); activeUntil = 0L }, modifier = Modifier.fillMaxWidth()) { Text("End session") }
+                         }
+                     }
+                 }
+@@ -521,7 +565,16 @@
+                         Text("${p.durationMinutes}m · ${p.strictMode.name} · ${p.blockedPackages.size} apps", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                     }
+                     TextButton(enabled = !locked, onClick = { showProfile = p }) { Text("Edit") }
+-                    Button(enabled = !active, onClick = { productionStartProfile(context, prod, p); activeUntil = FocusPreferences.until(context) }) { Text("Start") }
++                    Button(enabled = !active, onClick = {
++                        if (p.strictMode == StrictMode.LOCKED && !LockdownPolicy.isAdminActive(context)) {
++                            pendingLockedProfile = p
++                            runCatching { adminLauncher.launch(LockdownPolicy.adminIntent(context)) }
++                                .onFailure { pendingLockedProfile = null }
++                        } else {
++                            productionStartProfile(context, prod, p)
++                            activeUntil = FocusPreferences.until(context)
++                        }
++                    }) { Text("Start") }
+                 }
+             }
+         }
+@@ -547,11 +600,13 @@
+                     }
+                     Button(enabled=!active,onClick={
+                         if (quickStrict==StrictMode.LOCKED && !LockdownPolicy.isAdminActive(context)) {
+-                            LockdownPolicy.requestAdmin(context)
++                            pendingQuickLocked = true
++                            runCatching { adminLauncher.launch(LockdownPolicy.adminIntent(context)) }
++                                .onFailure { pendingQuickLocked = false }
+                         } else {
+                             FocusPreferences.setBlockedPackages(context,selectedApps); FocusPreferences.setWhitelistMode(context,false); FocusPreferences.start(context,quickDuration,quickIntention,"Quick",quickStrict.name); prod.logEvent("session_start","Quick",metadata=quickIntention); WindowsSyncService.start(context); activeUntil=FocusPreferences.until(context)
+                         }
+-                    },modifier=Modifier.fillMaxWidth()){Text(if(quickStrict==StrictMode.LOCKED && !LockdownPolicy.isAdminActive(context)) "Enable Locked Mode protection first" else if(quickStrict==StrictMode.LOCKED) "Start LOCKED session" else "Start session")}
++                    },modifier=Modifier.fillMaxWidth()){Text(if(quickStrict==StrictMode.LOCKED && !LockdownPolicy.isAdminActive(context)) "Enable protection & start" else if(quickStrict==StrictMode.LOCKED) "Start LOCKED session" else "Start session")}
+                 }
+             }
+         }
