@@ -50,7 +50,7 @@ jobs:
           PROJECT_DIR=$(dirname "$SETTINGS")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Apply compile fixes
+      - name: Apply compile fixes v2
         shell: bash
         run: |
           set -euxo pipefail
