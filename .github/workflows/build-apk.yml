@@ -50,6 +50,13 @@ jobs:
           PROJECT_DIR=$(dirname "$SETTINGS")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
+      - name: Apply compile fixes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT_DIR"
+          patch -p1 --forward < "$GITHUB_WORKSPACE/patches/compile-fixes-v1.0.5.patch"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
