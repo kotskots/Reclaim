@@ -57,6 +57,33 @@ jobs:
           cd "$PROJECT_DIR"
           patch -p1 --forward < "$GITHUB_WORKSPACE/patches/compile-fixes-v1.0.5.patch"
 
+      - name: Fix Device Admin launcher flow
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT_DIR"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/kostas/reclaim/ProductionScreens.kt')
+          s=p.read_text()
+          old='''    val vpnLauncher=rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()){r->if(r.resultCode==Activity.RESULT_OK){WebsitePreferences.setEnabled(context,true);websiteEnabled=true;DnsVpnService.start(context)}}\n    val notifyLauncher=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){}\n'''
+          new='''    val vpnLauncher=rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()){r->if(r.resultCode==Activity.RESULT_OK){WebsitePreferences.setEnabled(context,true);websiteEnabled=true;DnsVpnService.start(context)}}\n    var adminRefresh by remember{mutableIntStateOf(0)}\n    val settingsAdminLauncher=rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()){\n        LockdownPolicy.finishAdminSetup(context)\n        adminRefresh++\n    }\n    val notifyLauncher=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){}\n'''
+          if old not in s:
+              raise SystemExit('settings launcher anchor not found')
+          s=s.replace(old,new,1)
+          old='''            val adminActive=LockdownPolicy.isAdminActive(context); val owner=LockdownPolicy.isDeviceOwner(context)\n'''
+          new='''            val adminActive=remember(adminRefresh){LockdownPolicy.isAdminActive(context)}; val owner=remember(adminRefresh){LockdownPolicy.isDeviceOwner(context)}\n'''
+          if old not in s:
+              raise SystemExit('admin state anchor not found')
+          s=s.replace(old,new,1)
+          old='''            if(!adminActive) OutlinedButton(enabled=!locked,onClick={LockdownPolicy.requestAdmin(context)},modifier=Modifier.fillMaxWidth()){Text("Enable uninstall protection")}\n'''
+          new='''            if(!adminActive) OutlinedButton(enabled=!locked,onClick={\n                LockdownPolicy.beginAdminSetup(context)\n                settingsAdminLauncher.launch(LockdownPolicy.adminIntent(context))\n            },modifier=Modifier.fillMaxWidth()){Text("Enable protection")}\n'''
+          if old not in s:
+              raise SystemExit('admin button anchor not found')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -71,6 +98,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Reclaim-v1.0.5-debug-apk
+          name: Reclaim-v1.0.6-debug-apk
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
