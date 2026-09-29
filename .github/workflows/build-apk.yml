@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -19,28 +19,53 @@ jobs:
       - name: Prepare source
         shell: bash
         run: |
-          set -e
+          set -euxo pipefail
           rm -rf buildsrc
           mkdir buildsrc
-          if [ -f Reclaim-v1.0.5-safe-source.zip ]; then
-            unzip -q Reclaim-v1.0.5-safe-source.zip -d buildsrc
+
+          if compgen -G 'source_xz/part*.txt' > /dev/null; then
+            cat source_xz/part*.txt | tr -d '\n\r ' | base64 -d > /tmp/reclaim-source.xz
+            xz -dc /tmp/reclaim-source.xz > /tmp/reclaim-source.bin
+
+            if tar -tf /tmp/reclaim-source.bin >/dev/null 2>&1; then
+              tar -xf /tmp/reclaim-source.bin -C buildsrc
+            elif unzip -t /tmp/reclaim-source.bin >/dev/null 2>&1; then
+              unzip -q /tmp/reclaim-source.bin -d buildsrc
+            else
+              echo 'Decoded source is neither tar nor zip' >&2
+              file /tmp/reclaim-source.bin || true
+              exit 1
+            fi
           elif compgen -G 'source_parts/part*.txt' > /dev/null; then
-            cat source_parts/part*.txt | base64 -d > /tmp/reclaim-source.zip
+            cat source_parts/part*.txt | tr -d '\n\r ' | base64 -d > /tmp/reclaim-source.zip
             unzip -q /tmp/reclaim-source.zip -d buildsrc
           else
             echo 'No source archive found.' >&2
             exit 1
           fi
 
-      - name: Build debug APK
-        working-directory: buildsrc
+          echo 'Project root contents:'
+          find buildsrc -maxdepth 2 -type f | sort | head -100
+
+      - name: Locate Gradle project
         shell: bash
         run: |
+          set -euxo pipefail
+          GRADLEW=$(find buildsrc -name gradlew -type f | head -1)
+          test -n "$GRADLEW"
+          PROJECT_DIR=$(dirname "$GRADLEW")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT_DIR"
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
           name: Reclaim-v1.0.5-safe-debug-apk
-          path: buildsrc/app/build/outputs/apk/debug/*.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
