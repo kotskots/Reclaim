@@ -30,16 +30,16 @@ jobs:
           test -d "$ANDROID_HOME/platforms/android-35"
           test -d "$ANDROID_HOME/build-tools/35.0.0"
 
-      - name: Prepare source
+      - name: Prepare verified source
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf buildsrc /tmp/reclaim-source.zip
+          rm -rf buildsrc /tmp/reclaim-source.tar.xz
           mkdir -p buildsrc
-          cat source_parts/part*.txt | tr -d '\n\r ' | base64 -d > /tmp/reclaim-source.zip
-          unzip -t /tmp/reclaim-source.zip
-          unzip -q /tmp/reclaim-source.zip -d buildsrc
-          find buildsrc -maxdepth 3 -type f | sort | head -100
+          cat source_verified/part*.txt | tr -d '\n\r ' | base64 -d > /tmp/reclaim-source.tar.xz
+          echo "268860282451ad058c1a0d524b085e23a4ee2e5e754a7b8c7d21d809a6f13d90  /tmp/reclaim-source.tar.xz" | sha256sum -c -
+          xz -t /tmp/reclaim-source.tar.xz
+          tar -xJf /tmp/reclaim-source.tar.xz -C buildsrc
 
       - name: Locate Gradle project
         shell: bash
@@ -49,13 +49,6 @@ jobs:
           test -n "$SETTINGS"
           PROJECT_DIR=$(dirname "$SETTINGS")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Apply Locked Mode v1.0.5 patch
-        shell: bash
-        run: |
-          set -euxo pipefail
-          cd "$PROJECT_DIR"
-          patch -p1 --forward < "$GITHUB_WORKSPACE/patches/locked-mode-v1.0.5.patch"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
