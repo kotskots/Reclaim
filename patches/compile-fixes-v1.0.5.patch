@@ -32,3 +32,11 @@
          item{ProductionSection("Notifications")}
          item{Card{Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Row(verticalAlignment=Alignment.CenterVertically){Text("Quiet hours",Modifier.weight(1f));Switch(quiet,{quiet=it;NotificationPreferences.setQuietEnabled(context,it)})};Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){OutlinedTextField(quietStart,{quietStart=it.take(5);NotificationPreferences.setQuietStart(context,quietStart)},Modifier.weight(1f),label={Text("From")});OutlinedTextField(quietEnd,{quietEnd=it.take(5);NotificationPreferences.setQuietEnd(context,quietEnd)},Modifier.weight(1f),label={Text("To")})};Text("Default nag interval: ${nag}m");Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){listOf(10,15,30,60).forEach{m->FilterChip(nag==m,onClick={nag=m;NotificationPreferences.setDefaultNagMinutes(context,m)},label={Text("${m}m")})}};Text("Max snoozes: $maxSnooze");Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){listOf(2,4,6,10).forEach{n->FilterChip(maxSnooze==n,onClick={maxSnooze=n;NotificationPreferences.setMaxSnoozes(context,n)},label={Text(n.toString())})}};Row(verticalAlignment=Alignment.CenterVertically){Text("Batch low-priority reminders",Modifier.weight(1f));Switch(batching,{batching=it;NotificationPreferences.setBatchingEnabled(context,it)})}}}}
          item{ProductionSection("Website blocker")}
+@@ -842,7 +842,6 @@
+     }
+     renameDevice?.let{d->var name by remember(d.id){mutableStateOf(d.name)};AlertDialog(onDismissRequest={renameDevice=null},title={Text("Rename PC")},text={OutlinedTextField(name,{name=it},label={Text("Device name")})},confirmButton={Button(onClick={devices=devices.map{if(it.id==d.id)it.copy(name=name.trim().ifBlank{"Windows PC"})else it};WindowsSyncPreferences.saveDevices(context,devices);renameDevice=null}){Text("Save")}},dismissButton={TextButton(onClick={renameDevice=null}){Text("Cancel")}})}
+ }
+-}
+ 
+ @Composable
+ private fun ProductionHealthRow(label:String,ok:Boolean,onClick:()->Unit){Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(if(ok)"●" else "○",color=if(ok)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error);Spacer(Modifier.width(8.dp));Text(label,Modifier.weight(1f));TextButton(onClick=onClick){Text(if(ok)"OK" else "Fix")}}}
