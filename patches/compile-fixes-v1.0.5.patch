@@ -1,0 +1,34 @@
+--- a/app/src/main/java/com/kostas/reclaim/FeatureHubScreen.kt
++++ b/app/src/main/java/com/kostas/reclaim/FeatureHubScreen.kt
+@@ -383,7 +383,7 @@
+         val projectId = projects.firstOrNull { it.name.equals(b.trim(), true) }?.id
+         goals = goals + GoalItem(System.currentTimeMillis(), a, projectId); prod.saveGoals(goals); showGoal = false
+     }
+-    if (showProfile) ProfileDialog(onDismiss = { showProfile = false }) { profile ->
++    if (showProfile) ProfileDialog(launchableApps, onDismiss = { showProfile = false }) { profile ->
+         profiles = profiles + profile; prod.saveProfiles(profiles); showProfile = false
+     }
+     if (showSchedule) ScheduleDialog(profiles, onDismiss = { showSchedule = false }) { schedule ->
+--- a/app/src/main/java/com/kostas/reclaim/MainActivity.kt
++++ b/app/src/main/java/com/kostas/reclaim/MainActivity.kt
+@@ -675,7 +675,8 @@
+     var habitText by remember { mutableStateOf("") }
+     var targetText by remember { mutableStateOf("7") }
+     var minMinutesText by remember { mutableStateOf("0") }
+-    val productivity = remember { ProductivityRepository(androidx.compose.ui.platform.LocalContext.current) }
++    val context = androidx.compose.ui.platform.LocalContext.current
++    val productivity = remember(context) { ProductivityRepository(context) }
+     var smokingPlan by remember { mutableStateOf(productivity.loadSmokingPlan()) }
+     val today = LocalDate.now()
+     val todayKey = today.toString()
+--- a/app/src/main/java/com/kostas/reclaim/ProductionScreens.kt
++++ b/app/src/main/java/com/kostas/reclaim/ProductionScreens.kt
+@@ -829,7 +829,7 @@
+             Text("Hard-lock protection",fontWeight=FontWeight.Bold)
+             Text(when{owner->"Device Owner protection active · uninstall blocking is enforced during Locked Mode.";adminActive->"Device Admin protection active · uninstall/deactivation has extra protection, and Settings are blocked while Locked Mode runs.";else->"Protection is not enabled yet. Enable it before starting a Locked session."},style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+             if(!adminActive) OutlinedButton(enabled=!locked,onClick={LockdownPolicy.requestAdmin(context)},modifier=Modifier.fillMaxWidth()){Text("Enable uninstall protection")}
+-            Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Emergency unlock",fontWeight=FontWeight.Bold);Text("The only in-app way out of Locked Mode: cooldown + 1,500 characters typed manually.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)};Switch(emergency,enabled=!locked,onCheckedChange={emergency=it;ProductionSettings.setEmergencyUnlockEnabled(context,it)})};Text("Delay: ${emergencyDelay/60} min");Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){listOf(60,180,300,600).forEach{s->FilterChip(emergencyDelay==s,onClick={emergencyDelay=s;ProductionSettings.setEmergencyUnlockDelaySeconds(context,s)},enabled=!locked,label={Text(if(s<60)"${s}s" else "${s/60}m")})}}}}
++            Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Emergency unlock",fontWeight=FontWeight.Bold);Text("The only in-app way out of Locked Mode: cooldown + 1,500 characters typed manually.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)};Switch(emergency,enabled=!locked,onCheckedChange={emergency=it;ProductionSettings.setEmergencyUnlockEnabled(context,it)})};Text("Delay: ${emergencyDelay/60} min");Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){listOf(60,180,300,600).forEach{s->FilterChip(emergencyDelay==s,onClick={emergencyDelay=s;ProductionSettings.setEmergencyUnlockDelaySeconds(context,s)},enabled=!locked,label={Text(if(s<60)"${s}s" else "${s/60}m")})}}}}}
+         item{ProductionSection("Notifications")}
+         item{Card{Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Row(verticalAlignment=Alignment.CenterVertically){Text("Quiet hours",Modifier.weight(1f));Switch(quiet,{quiet=it;NotificationPreferences.setQuietEnabled(context,it)})};Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){OutlinedTextField(quietStart,{quietStart=it.take(5);NotificationPreferences.setQuietStart(context,quietStart)},Modifier.weight(1f),label={Text("From")});OutlinedTextField(quietEnd,{quietEnd=it.take(5);NotificationPreferences.setQuietEnd(context,quietEnd)},Modifier.weight(1f),label={Text("To")})};Text("Default nag interval: ${nag}m");Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){listOf(10,15,30,60).forEach{m->FilterChip(nag==m,onClick={nag=m;NotificationPreferences.setDefaultNagMinutes(context,m)},label={Text("${m}m")})}};Text("Max snoozes: $maxSnooze");Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){listOf(2,4,6,10).forEach{n->FilterChip(maxSnooze==n,onClick={maxSnooze=n;NotificationPreferences.setMaxSnoozes(context,n)},label={Text(n.toString())})}};Row(verticalAlignment=Alignment.CenterVertically){Text("Batch low-priority reminders",Modifier.weight(1f));Switch(batching,{batching=it;NotificationPreferences.setBatchingEnabled(context,it)})}}}}
+         item{ProductionSection("Website blocker")}
