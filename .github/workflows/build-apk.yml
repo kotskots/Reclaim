@@ -27,6 +27,39 @@ jobs:
           unzip -q /tmp/reclaim-source.zip -d buildsrc
           find buildsrc -maxdepth 2 -type f | sort | head -100
 
+      - name: Apply compile fixes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('buildsrc')
+          feature = root / 'app/src/main/java/com/kostas/reclaim/FeatureHubScreen.kt'
+          s = feature.read_text()
+          old = 'if (showProfile) ProfileDialog(onDismiss = { showProfile = false }) { profile ->'
+          new = 'if (showProfile) ProfileDialog(launchableApps, onDismiss = { showProfile = false }) { profile ->'
+          assert old in s
+          feature.write_text(s.replace(old, new, 1))
+
+          main = root / 'app/src/main/java/com/kostas/reclaim/MainActivity.kt'
+          s = main.read_text()
+          old = 'val productivity = remember { ProductivityRepository(androidx.compose.ui.platform.LocalContext.current) }'
+          new = 'val habitContext = androidx.compose.ui.platform.LocalContext.current\n    val productivity = remember(habitContext) { ProductivityRepository(habitContext) }'
+          assert old in s
+          main.write_text(s.replace(old, new, 1))
+
+          prod = root / 'app/src/main/java/com/kostas/reclaim/ProductionScreens.kt'
+          lines = prod.read_text().splitlines()
+          # Remove the stray closing brace immediately before ProductionHealthRow.
+          marker = '@Composable\nprivate fun ProductionHealthRow'
+          text = '\n'.join(lines) + '\n'
+          old = '}\n}\n\n@Composable\nprivate fun ProductionHealthRow'
+          new = '}\n\n@Composable\nprivate fun ProductionHealthRow'
+          assert old in text
+          prod.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Locate Gradle project
         shell: bash
         run: |
