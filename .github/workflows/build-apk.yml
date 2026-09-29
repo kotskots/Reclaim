@@ -34,47 +34,20 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf buildsrc /tmp/reclaim-* /tmp/xzparts
-          mkdir -p buildsrc /tmp/xzparts
-
-          head -c 8000 source_xz/part05.txt > /tmp/xzparts/p05a
-          tail -c 8000 source_xz/part05.txt > /tmp/xzparts/p05b
-
-          try_xz() {
-            name="$1"; shift
-            cat "$@" | tr -d '\n\r ' | base64 -d > "/tmp/$name.xz" || return 1
-            xz -t "/tmp/$name.xz" || return 1
-            cp "/tmp/$name.xz" /tmp/reclaim-source.xz
-            return 0
-          }
-
-          COMMON=(source_xz/part00.txt source_xz/part01.txt source_xz/part02.txt source_xz/part03.txt source_xz/part04.txt)
-          try_xz c1 "${COMMON[@]}" /tmp/xzparts/p05a source_xz/part06.txt || \
-          try_xz c2 "${COMMON[@]}" /tmp/xzparts/p05b source_xz/part06.txt || \
-          try_xz c3 "${COMMON[@]}" /tmp/xzparts/p05a || \
-          try_xz c4 "${COMMON[@]}" /tmp/xzparts/p05b || \
-          try_xz c5 "${COMMON[@]}" source_xz/part05.txt || {
-            echo 'Could not reconstruct source archive' >&2
-            exit 1
-          }
-
-          xz -dc /tmp/reclaim-source.xz > /tmp/reclaim-source.bin
-          if tar -tf /tmp/reclaim-source.bin >/dev/null 2>&1; then
-            tar -xf /tmp/reclaim-source.bin -C buildsrc
-          elif unzip -t /tmp/reclaim-source.bin >/dev/null 2>&1; then
-            unzip -q /tmp/reclaim-source.bin -d buildsrc
-          else
-            echo 'Decoded source is neither tar nor zip' >&2
-            file /tmp/reclaim-source.bin || true
-            exit 1
-          fi
+          rm -rf buildsrc /tmp/reclaim-source.zip
+          mkdir -p buildsrc
+          cat source_parts/part*.txt | tr -d '\n\r ' | base64 -d > /tmp/reclaim-source.zip
+          unzip -t /tmp/reclaim-source.zip
+          unzip -q /tmp/reclaim-source.zip -d buildsrc
+          find buildsrc -maxdepth 3 -type f | sort | head -100
 
       - name: Locate Gradle project
         shell: bash
         run: |
           set -euxo pipefail
-          PROJECT_DIR=$(dirname "$(find buildsrc -name settings.gradle.kts -type f | head -1)")
-          test -n "$PROJECT_DIR"
+          SETTINGS=$(find buildsrc -name settings.gradle.kts -type f | head -1)
+          test -n "$SETTINGS"
+          PROJECT_DIR=$(dirname "$SETTINGS")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Apply Locked Mode v1.0.5 patch
